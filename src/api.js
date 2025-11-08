@@ -1,43 +1,77 @@
 // src/api.js
+// Pull Survivor data straight from your survivor-api repo (RAW GitHub URLs).
+// Cache results in localStorage for 24 hours so we only re-download once a day.
 
-const DATA_BASE =
-  import.meta.env.VITE_DATA_BASE?.replace(/\/+$/, "") || ""; // remove trailing slash if present
+const RAW_SEASONS =
+  "https://raw.githubusercontent.com/trishadey44/survivor-api/main/data/seasons.json";
+const RAW_EPISODES =
+  "https://raw.githubusercontent.com/trishadey44/survivor-api/main/data/episodes.json";
 
-function remoteUrl(name) {
-  if (!DATA_BASE) return null;
-  const ts = Date.now();
-  return `${DATA_BASE}/${name}?t=${ts}`;
+// If you ever change repo/branch/path, just update the two constants above.
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+async function fetchJSON(url) {
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) {
+    throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
+  }
+  return res.json();
 }
 
-function localUrl(name) {
-  const ts = Date.now();
-  return `/${name}?t=${ts}`;
+function getCached(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
-async function fetchJsonWithFallback(primaryUrl, fallbackUrl, label) {
-  if (primaryUrl) {
-    try {
-      const res = await fetch(primaryUrl, { cache: "no-store" });
-      if (res.ok) return await res.json();
-    } catch {
-      /* fall through to local */
+function setCached(key, payload) {
+  try {
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // If storage is full or disabled, just ignore caching.
+  }
+}
+
+/**
+ * Fetch with a 24h cache:
+ * - If cache is fresh (<24h), return it.
+ * - Else try network, cache, return.
+ * - If network fails but we have any cache, return that as a fallback.
+ */
+async function fetchDaily(url, cacheKey) {
+  const now = Date.now();
+  const cached = getCached(cacheKey);
+
+  // 1) Fresh cache? Use it.
+  if (cached && typeof cached.timestamp === "number" && now - cached.timestamp < ONE_DAY_MS) {
+    return cached.data;
+  }
+
+  // 2) Try network
+  try {
+    const data = await fetchJSON(url);
+    setCached(cacheKey, { timestamp: now, data });
+    return data;
+  } catch (err) {
+    // 3) Network failed → if we have any cache, use it; else bubble error.
+    if (cached && cached.data) {
+      return cached.data;
     }
+    throw err;
   }
-  const res2 = await fetch(fallbackUrl, { cache: "no-store" });
-  if (!res2.ok) {
-    throw new Error(`Failed to load ${label} (tried remote and local)`);
-  }
-  return await res2.json();
 }
 
 export async function loadSeasons() {
-  const primary = remoteUrl("seasons.json");
-  const fallback = localUrl("seasons.json");
-  return fetchJsonWithFallback(primary, fallback, "seasons.json");
+  return fetchDaily(RAW_SEASONS, "survivor_cache_seasons");
 }
 
 export async function loadEpisodes() {
-  const primary = remoteUrl("episodes.json");
-  const fallback = localUrl("episodes.json");
-  return fetchJsonWithFallback(primary, fallback, "episodes.json");
+  return fetchDaily(RAW_EPISODES, "survivor_cache_episodes");
 }
