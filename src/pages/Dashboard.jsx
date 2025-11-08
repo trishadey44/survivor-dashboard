@@ -3,8 +3,6 @@ import { loadSeasons, loadEpisodes } from "../api";
 import Loading from "../components/Loading";
 import ErrorBlock from "../components/ErrorBlock";
 import SeasonTable from "../components/SeasonTable";
-import ViewershipChart from "../components/ViewershipChart";
-import BarChartCard from "../components/BarChartCard";
 
 export default function Dashboard() {
   const [seasons, setSeasons] = useState([]);
@@ -20,7 +18,7 @@ export default function Dashboard() {
         const s = await loadSeasons();
         const e = await loadEpisodes();
         if (!alive) return;
-        setSeasons(s.seasons || s); // your seasons.json might be array or { seasons: [...] }
+        setSeasons(s.seasons || s); // supports either array or { seasons: [...] }
         setEpisodesBySeason(e.episodes_by_season || e);
         setLoading(false);
       } catch (error) {
@@ -33,21 +31,14 @@ export default function Dashboard() {
     return () => { alive = false; };
   }, []);
 
-  const episodesPerSeason = useMemo(() => {
-    return seasons.map(s => ({
-      season: s.season_number,
-      episodes: Array.isArray(episodesBySeason?.[String(s.season_number)])
-        ? episodesBySeason[String(s.season_number)].length
-        : s.num_episodes ?? 0
-    }));
-  }, [seasons, episodesBySeason]);
+  const totalSeasons = seasons.length;
+  const totalEpisodes = useMemo(() => {
+    return Object.values(episodesBySeason).reduce((sum, arr) => {
+      return sum + (Array.isArray(arr) ? arr.length : 0);
+    }, 0);
+  }, [episodesBySeason]);
 
-  const daysPerSeason = useMemo(() => {
-    return seasons.map(s => ({
-      season: s.season_number,
-      days: s.num_days ?? 0
-    }));
-  }, [seasons]);
+  const newestSeason = seasons[seasons.length - 1];
 
   if (loading) return <Loading label="Loading Survivor data..." />;
   if (err) return <ErrorBlock error={err.message || err} />;
@@ -63,26 +54,34 @@ export default function Dashboard() {
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search"
           />
-          <div className="small">Tip: try typing a tribe name or a location</div>
+          <div className="small">Tip: try typing a tribe, a location, or a winner’s name</div>
         </div>
       </div>
 
       <div className="grid grid-2">
-        <ViewershipChart seasons={seasons} />
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Quick stats</h2>
+          <div className="small">
+            <div><strong>Total seasons:</strong> {totalSeasons}</div>
+            <div><strong>Total episodes:</strong> {totalEpisodes}</div>
+            {newestSeason && (
+              <>
+                <div><strong>Latest season:</strong> {newestSeason.season_number} — {newestSeason.title}</div>
+                <div className="small">
+                  Run: {newestSeason.airing_dates?.start || "?"} → {newestSeason.airing_dates?.end || "?"}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
 
-        <BarChartCard
-          title="Episodes per Season"
-          data={episodesPerSeason}
-          xKey="season"
-          yKey="episodes"
-        />
-
-        <BarChartCard
-          title="Days per Season"
-          data={daysPerSeason}
-          xKey="season"
-          yKey="days"
-        />
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>About</h2>
+          <div className="small">
+            This dashboard reads the latest <em>Survivor</em> data (seasons & episodes) from your API once per day,
+            and lets you search and browse details. Click a season title to view its episode list.
+          </div>
+        </div>
       </div>
 
       <SeasonTable seasons={seasons} query={query} />
